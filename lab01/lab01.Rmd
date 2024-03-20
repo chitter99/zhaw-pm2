@@ -1,0 +1,98 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(magrittr)
+```
+
+# Datenimport
+
+## Import CSV
+Issue on line 5959, apprach import as lines and make modification via regex, 
+then import as csv.
+
+```{r}
+lines <- readLines("./ugz_luftqualitaetsmessung_seit-2012.csv")
+
+patn <- regex(",([0-9.]+)(\\d{4}-\\d{2}-\\d{2},.+)")
+missing_newline_index <- grep(patn, lines)
+lines[missing_newline_index] <- gsub(patn, ",\\1\n\\2", lines[missing_newline_index])
+
+df <- read.csv(text=lines, na.strings = "NaN")
+```
+
+Input CSV has multiple headers per column, approach is to merge the location 
+and typeinto a new header.
+
+```{r}
+columns <- names(df)
+columns <- columns[-1]
+
+names(df) <- c("datum", lapply(columns, function(col) paste(df[1,col], df[2,col], sep=".")))
+
+df <- df[-c(1,2,3,4,5),]
+```
+
+## Convert from long to wide
+Problem is that location is encoded in the column name.
+
+```{r}
+dfl <- df %>%
+  pivot_longer(
+    !datum,
+    names_to = c("standort","name"),
+    names_pattern = "(.+)\\.(.+)",
+    values_to = "value",
+    values_drop_na = FALSE
+  )
+```
+
+Replace ugly german names
+
+```{r}
+dfl <- dfl %>%
+  mutate(name = replace(name, name == "Schwefeldioxid", "so2")) %>%
+  mutate(name = replace(name, name == "Kohlenmonoxid", "co")) %>%
+  mutate(name = replace(name, name == "Ozon, höchstes Stundenmittel", "o3_max_h1")) %>%
+  mutate(name = replace(name, name == "Ozon, Anzahl Stundenmittel > 120 µg/m3", "o3_nb_h1gt120")) %>%
+  mutate(name = replace(name, name == "Stickstoffdioxid", "no2")) %>%
+  mutate(name = replace(name, name == "Stickstoffmonoxid", "no")) %>%
+  mutate(name = replace(name, name == "Feinstaub PM10", "pm10")) %>%
+  mutate(name = replace(name, name == "Lufttemperatur", "t")) %>%
+  mutate(name = replace(name, name == "Luftfeuchte relativ", "hr")) %>%
+  mutate(name = replace(name, name == "Luftdruck", "p")) %>%
+  mutate(name = replace(name, name == "Windgeschwindigkeit skalar", "wvs")) %>%
+  mutate(name = replace(name, name == "Globalstrahlung", "strglo")) %>%
+  mutate(name = replace(name, name == "Regendauer", "raindur"))
+```
+
+Normalize Standort
+```{r}
+dfl <- dfl %>%
+  mutate(standort = str_replace(standort, "strasse", "")) %>%
+  mutate(standort = str_replace(standort, "Zch_", "")) %>%
+  mutate(standort = str_to_lower(standort))
+```
+
+Ensure data types
+```{r}
+dfl$datum %<>% as.Date
+dfl$standort %<>% as.factor
+dfl$value %<>% as.numeric
+```
+
+Convert back to wide
+```{r}
+dfw <- dfl %>%
+  pivot_wider(names_from = name, values_from = value)
+```
+
+Validation
+```{r}
+
+```
+
+# Erweiterung des Datensatzes
